@@ -147,8 +147,6 @@ export default  class DeviceControlAPI {
 
             });
 
-            return ; //for web serial test 
-
             if (node_process.platform !== "win32") return;
           
             this.bluetoothDevicesList = [];
