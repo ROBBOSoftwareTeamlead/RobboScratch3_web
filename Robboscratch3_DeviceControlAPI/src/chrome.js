@@ -1046,13 +1046,22 @@ function InterfaceDevice(port,paired_devices,port_path){
     
         // init();
 
-        openSerial(
-        this.port,  
-        function(){ console.log("open");  onConnect()},
-        function(data){console.log(data);onReceiveCallback(data)},
-        function(){console.log("close"); closeSerial();},
-        115200 //115200 //38400
-        );
+       openSerial(
+       this.port,  
+       function(){ console.log("open");  onConnect()},
+       function(data){console.log(data);onReceiveCallback(data)},
+       () => {
+          console.log("close");
+          state = DEVICE_STATES["TIMEOUT"];
+          if (typeof(onDeviceStatusChangeCb) === 'function'){
+            let error = {code:1,msg:"disconnected"};
+            let result = {state:state, deviceId: iDeviceID, error:error};
+            onDeviceStatusChangeCb(result);
+          }
+          closeSerial();
+       },
+       115200 //115200 //38400
+       );
 
     //   UNOTIME = setTimeout(()=>{
     //     console.log(state);
@@ -2167,6 +2176,46 @@ function writeSerial(data, callback) {
    //   init;
 }
 
+const searchDevicesAuto = function(onDevicesFoundCb){
+
+  if (typeof navigator === "undefined" || !navigator.serial || !navigator.serial.getPorts){
+    console.warn("Auto search skipped: navigator.serial.getPorts unavailable");
+    return;
+  }
+
+  navigator.serial.getPorts().then((ports)=>{
+
+    var paired_devices = [];
+    arrDevices = [];
+
+    if (!ports || ports.length === 0){
+      if (typeof(onDevicesFoundCb) === 'function'){
+        onDevicesFoundCb(arrDevices);
+      }
+      return;
+    }
+
+    ports.forEach((port)=>{
+      const info = port.getInfo ? port.getInfo() : {};
+      const usbVendorId = info.usbVendorId || 0;
+      const usbProductId = info.usbProductId || 0;
+      const port_path  = "webserial:"+(63356+usbVendorId).toString(16).substr(-4)+":"+(63356+usbProductId).toString(16).substr(-4);
+      var device = new InterfaceDevice(port,paired_devices,port_path);
+      arrDevices.push(device);
+    });
+
+    if (typeof(onDevicesFoundCb) === 'function'){
+      onDevicesFoundCb(arrDevices);
+    }
+
+  }).catch((err)=>{
+    console.error("Auto search failed", err);
+    if (typeof(onDevicesFoundCb) === 'function'){
+      onDevicesFoundCb([]);
+    }
+  });
+}
+
 const searchDevices = function(onDevicesFoundCb){
 
  // import_settings();
@@ -2379,6 +2428,7 @@ export  {
 
   InterfaceDevice,
   searchDevices,
+  searchDevicesAuto,
   getConnectedDevices,
   pushConnectedDevices,
   DEVICES,
