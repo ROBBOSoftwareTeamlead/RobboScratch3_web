@@ -1,0 +1,100 @@
+---
+description: Архитектура проекта RS3_Web для работы устройств со Scratch 3 в браузере
+alwaysApply: false
+---
+# Архитектура RS3_Web — навигация по проекту
+
+## Уровни архитектуры
+1. **GUI** (React) — robboscratch3_gui
+2. **VM** — robboscratch3_vm, создает API: RCA, LCA, QCA, OCA, ACA, ECA
+3. **API** — Robboscratch3_DeviceControlAPI + наследники (Robot, Laboratory, Quadcopter, Otto, Arduino, Esp)
+4. **Device** — InterfaceDevice через Web Serial API (navigator.serial)
+5. **Hardware** — USB через браузерный Web Serial API
+
+## Файловая структура
+
+**DeviceControlAPI:**
+```
+Robboscratch3_DeviceControlAPI/src/
+├── DeviceControlAPI.js       — базовый класс, searchAllDevices(), searchDevicesAuto(), flashFirmware()
+├── RobotControlAPI.js        — наследник для робота
+├── LaboratoryControlAPI.js   — наследник для лаборатории
+├── QuadcopterControlAPI.js   — наследник для квадрокоптера
+├── OttoControlAPI.js         — наследник для Otto
+├── ArduinoControlAPI.js      — наследник для Arduino
+├── EspControlAPI.js          — наследник для ESP
+├── chrome.js                 — Web Serial API (searchDevices, InterfaceDevice)
+├── bluetooth-chrome.js       — Web Bluetooth API
+├── firmware_flasher_new.js   — flash_firmware(), STK500
+├── firmwares.js              — hex данные прошивок
+└── RobotSensorsData.js       — структуры данных сенсоров
+```
+
+**GUI:**
+```
+robboscratch3_gui/src/RobboGui/
+├── RobboGui.js                      — главный компонент
+├── RobboMenu.js                     — меню
+├── SearchPanelDeviceComponent.js    — поиск/подключение устройств
+├── FirmwareFlasherDeviceComponent.js — flashDevice() → DCA.flashFirmware()
+├── SettingsWindowComponent.js       — настройки
+├── SensorPallete.js                 — палитра сенсоров
+├── *PalleteComponent.js             — палитры устройств (Robot, Laboratory, Otto, Arduino, etc.)
+├── *PreviewComponent.js             — предпросмотр устройств
+└── actions/sensor_actions.js        — Redux actions
+```
+
+**VM:**
+```
+robboscratch3_vm/src/
+├── virtual-machine.js    — создает RCA, LCA, QCA, OCA, ACA, ECA, IOT
+├── engine/runtime.js     — runtime с доступом к API
+├── extensions/           — расширения Scratch
+└── iot.js                — IoT функционал
+```
+
+## Цепочки вызовов
+
+- **Поиск**: SearchPanelDeviceComponent → DCA.searchAllDevices() → searchDevices() (chrome.js) → navigator.serial.requestPort()
+- **Автопоиск**: DCA.searchDevicesAuto() → searchDevicesAuto() → navigator.serial.getPorts()
+- **Подключение**: device.connect() → openSerial() → serialPort.open() → setState(DEVICE_IS_READY)
+- **Команда**: Scratch Block → VM.runtime → *ControlAPI → device.command() → serialPort.write()
+- **Прошивка**: FirmwareFlasherDeviceComponent.flashDevice() → DCA.flashFirmware() → firmware_flasher_new.flash_firmware()
+
+## Справочник констант
+
+**DEVICE_STATES:** 0 INITED, 1 OPENED, 2 CONNECTED, 3 TEST_DATA_SENT, 5 SERIAL_FOUND, 6 PURGING, 7 DEVICE_IS_READY, 8 DEVICE_ERROR
+
+**DEVICES (device_id):** 0 Robot, 1 Laboratory, 2 Arduino, 3 ScratchDuino, 4 Quadcopter, 5 Otto, 6 Arduino UNO. 
+Baud: UNO (115200): 3,4,6; Nano (57600): 0,1,2,5.
+
+**Прошивка:** версия из config.device.need_firmware или last_firmwares[device_id]; образ — firmwares["device_id_"+id]["version_"+N]
+
+## Интерфейсы
+
+**InterfaceDevice (chrome.js):** getPortName(), getDeviceID(), getState(), command(), connect(), disconnect()
+
+**Web Serial API:** navigator.serial.requestPort() (требует user gesture), navigator.serial.getPorts(), serialPort.open/close/readable/writable
+
+**VirtualMachine (virtual-machine.js):** создает this.RCA, LCA, QCA, DCA, OCA, ACA, ECA, IOT → передает в Runtime. Доступ в расширениях: runtime.RCA, runtime.LCA, etc.
+
+## Сборка (build_new.sh)
+
+**Порядок:** DeviceControlAPI → VM → I10n → Blocks → GUI (с симлинками)
+
+**Симлинки в GUI:** scratch-blocks → robboscratch3_blocks, scratch-l10n → robboscratch3_I10n, scratch-vm → robboscratch3_vm
+
+**Симлинк в VM:** Robboscratch3_DeviceControlAPI → ../../Robboscratch3_DeviceControlAPI
+
+**Запуск dev:** cd robboscratch3_gui && npm run start (localhost:8601)
+
+## Важно при правках
+
+- Проверять device.getState() == DEVICE_IS_READY перед командами
+- Web Serial API требует HTTPS (кроме localhost) и user gesture для requestPort()
+- Новое устройство: наследник DeviceControlAPI, device_id в DEVICES, прошивка в firmwares.js, экземпляр в VM, GUI компоненты
+- Настройки прошивки в SettingsWindowComponent.js: firmware_flasher_nano_detect_timeout, firmware_block_transmit_delay
+
+## Отличия от Desktop
+
+Desktop использует Node.js serialport, Web использует Web Serial API (navigator.serial). Web требует HTTPS и user gesture, работает только в Chrome/Edge/Opera 89+.
