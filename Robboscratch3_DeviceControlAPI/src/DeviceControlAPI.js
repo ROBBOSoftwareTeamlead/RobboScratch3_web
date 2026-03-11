@@ -17,6 +17,7 @@ import {
   NO_RESPONSE_TIME_DEFAULT,
   NO_START_TIMEOUT_DEFAULT,
   UNO_TIMEOUT_DEFAULT,
+  searchDevicesAuto,
 } from './chrome';
 
 import {
@@ -53,8 +54,18 @@ export default  class DeviceControlAPI {
 
       this.deviceList = [];
       this.bluetoothDevicesList = [];
+      this.autoRescanTimer = null;
+      this.AUTO_RESCAN_DELAY_MS = 2000;
 
     }
+
+  scheduleAutoRescan(){
+    if (this.autoRescanTimer) return;
+    this.autoRescanTimer = setTimeout(()=>{
+      this.autoRescanTimer = null;
+      this.searchKnownDevices();
+    }, this.AUTO_RESCAN_DELAY_MS);
+  }
 
    set_all_intervals_in_dca(obj){
     set_all_intervals(obj);
@@ -112,6 +123,9 @@ export default  class DeviceControlAPI {
 
                     }
 
+                    if (state && (state.state === DEVICE_STATES["TIMEOUT"] || state.state === DEVICE_STATES["DEVICE_ERROR"])){
+                      this.scheduleAutoRescan();
+                    }
                   
 
                   });
@@ -132,8 +146,6 @@ export default  class DeviceControlAPI {
               }
 
             });
-
-            return ; //for web serial test 
 
             if (node_process.platform !== "win32") return;
           
@@ -208,6 +220,64 @@ export default  class DeviceControlAPI {
         }
 
 
+      }
+
+      searchKnownDevices(){
+
+        searchDevicesAuto((devices) => {
+
+          this.onDevicesStartSearchingCb();
+
+          this.deviceList = devices;
+
+          if (devices.length == 0){
+            this.onDevicesNotFoundCb();
+            return;
+          }
+
+          for (let index = 0; index < devices.length; index++){
+
+              if (devices[index] == null) return;
+
+              devices[index].registerFirmwareVersionDiffersCallback( (result) => {
+
+                let cb =  this.onFirmwareVersionDiffersCbMap[devices[index].getPortName()];
+
+                 if (typeof(cb) == 'function'){
+
+                   cb(result);
+
+                }
+              });
+
+              devices[index].registerErrorCallback(this.onErrorCb);
+            
+              devices[index].registerDeviceStatusChangeCallback((state) => {
+
+                let cb =  this.onDeviceStatusChangeCbMap[devices[index].getPortName()];
+
+                 if (typeof(cb) == 'function'){
+
+                   cb(state);
+
+                }
+
+                if (state && (state.state === DEVICE_STATES["TIMEOUT"] || state.state === DEVICE_STATES["DEVICE_ERROR"])){
+                  this.scheduleAutoRescan();
+                }
+
+              });
+
+              let device = {
+                 devicePort: devices[index].getPortName(),
+                 deviceId: devices[index].getDeviceID() 
+              }
+
+               this.onDeviceFoundCb(device);
+
+            }
+
+        });
       }
 
       registerErrorCallback(cb){
